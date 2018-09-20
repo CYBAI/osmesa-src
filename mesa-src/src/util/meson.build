@@ -48,12 +48,16 @@ files_mesa_util = files(
   'mesa-sha1.h',
   'os_time.c',
   'os_time.h',
+  'u_process.c',
+  'u_process.h',
   'sha1/sha1.c',
   'sha1/sha1.h',
   'ralloc.c',
   'ralloc.h',
   'rand_xor.c',
   'rand_xor.h',
+  'rb_tree.c',
+  'rb_tree.h',
   'register_allocate.c',
   'register_allocate.h',
   'rgtc.c',
@@ -81,9 +85,13 @@ files_mesa_util = files(
   'u_thread.h',
   'u_vector.c',
   'u_vector.h',
+  'u_math.c',
+  'u_math.h',
+  'vma.c',
+  'vma.h',
 )
 
-install_data('drirc', install_dir : get_option('sysconfdir'))
+install_data('00-mesa-defaults.conf', install_dir : join_paths(get_option('datadir'), 'drirc.d'))
 
 files_xmlconfig = files(
   'xmlconfig.c',
@@ -94,7 +102,7 @@ format_srgb = custom_target(
   'format_srgb',
   input : ['format_srgb.py'],
   output : 'format_srgb.c',
-  command : [prog_python2, '@INPUT0@'],
+  command : [prog_python, '@INPUT0@'],
   capture : true,
 )
 
@@ -111,11 +119,15 @@ libxmlconfig = static_library(
   'xmlconfig',
   files_xmlconfig,
   include_directories : inc_common,
+  link_with : libmesa_util,
   dependencies : [dep_expat, dep_m],
   c_args : [
     c_msvc_compat_args, c_vis_args,
     '-DSYSCONFDIR="@0@"'.format(
       join_paths(get_option('prefix'), get_option('sysconfdir'))
+    ),
+    '-DDATADIR="@0@"'.format(
+      join_paths(get_option('prefix'), get_option('datadir'))
     ),
   ],
   build_by_default : false,
@@ -157,4 +169,6 @@ if with_tests
 
   subdir('tests/hash_table')
   subdir('tests/string_buffer')
+  subdir('tests/vma')
+  subdir('tests/set')
 endif

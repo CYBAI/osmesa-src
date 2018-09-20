@@ -1372,3 +1372,54 @@ SVGA3D_vgpu10_TransferFromBuffer(struct svga_winsys_context *swc,
    swc->commit(swc);
    return PIPE_OK;
 }
+
+enum pipe_error
+SVGA3D_vgpu10_IntraSurfaceCopy(struct svga_winsys_context *swc,
+                               struct svga_winsys_surface *surface,
+                               unsigned level, unsigned face,
+                               const SVGA3dCopyBox *box)
+{
+   SVGA3dCmdIntraSurfaceCopy *cmd =
+      SVGA3D_FIFOReserve(swc,
+                         SVGA_3D_CMD_INTRA_SURFACE_COPY,
+                         sizeof(SVGA3dCmdIntraSurfaceCopy),
+                         1);  /* one relocation */
+   if (!cmd)
+      return PIPE_ERROR_OUT_OF_MEMORY;
+
+   swc->surface_relocation(swc, &cmd->surface.sid, NULL, surface, SVGA_RELOC_READ | SVGA_RELOC_WRITE);
+   cmd->surface.face = face;
+   cmd->surface.mipmap = level;
+   cmd->box = *box;
+
+   swc->commit(swc);
+
+   return PIPE_OK;
+}
+
+enum pipe_error
+SVGA3D_vgpu10_ResolveCopy(struct svga_winsys_context *swc,
+                          unsigned dstSubResource,
+                          struct svga_winsys_surface *dst,
+                          unsigned srcSubResource,
+                          struct svga_winsys_surface *src,
+                          const SVGA3dSurfaceFormat copyFormat)
+{
+   SVGA3dCmdDXResolveCopy *cmd =
+      SVGA3D_FIFOReserve(swc,
+                         SVGA_3D_CMD_DX_RESOLVE_COPY,
+                         sizeof(SVGA3dCmdDXResolveCopy),
+                         2); /* two relocations */
+   if (!cmd)
+      return PIPE_ERROR_OUT_OF_MEMORY;
+
+   cmd->dstSubResource = dstSubResource;
+   swc->surface_relocation(swc, &cmd->dstSid, NULL, dst, SVGA_RELOC_WRITE);
+   cmd->srcSubResource = srcSubResource;
+   swc->surface_relocation(swc, &cmd->srcSid, NULL, src, SVGA_RELOC_READ);
+   cmd->copyFormat = copyFormat;
+
+   swc->commit(swc);
+
+   return PIPE_OK;
+}

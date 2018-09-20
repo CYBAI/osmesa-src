@@ -105,7 +105,8 @@ intel_map_renderbuffer(struct gl_context *ctx,
 		       GLuint x, GLuint y, GLuint w, GLuint h,
 		       GLbitfield mode,
 		       GLubyte **out_map,
-		       GLint *out_stride)
+		       GLint *out_stride,
+		       bool flip_y)
 {
    struct brw_context *brw = brw_context(ctx);
    struct swrast_renderbuffer *srb = (struct swrast_renderbuffer *)rb;
@@ -162,14 +163,14 @@ intel_map_renderbuffer(struct gl_context *ctx,
     * upside-down.  So we need to ask for a rectangle on flipped vertically, and
     * we then return a pointer to the bottom of it with a negative stride.
     */
-   if (rb->Name == 0) {
+   if (flip_y) {
       y = rb->Height - y - h;
    }
 
    intel_miptree_map(brw, mt, irb->mt_level, irb->mt_layer,
 		     x, y, w, h, mode, &map, &stride);
 
-   if (rb->Name == 0) {
+   if (flip_y) {
       map += (h - 1) * stride;
       stride = -stride;
    }
@@ -289,6 +290,7 @@ intel_alloc_private_renderbuffer_storage(struct gl_context * ctx, struct gl_rend
    assert(rb->Format != MESA_FORMAT_NONE);
 
    rb->NumSamples = intel_quantize_num_samples(screen, rb->NumSamples);
+   rb->NumStorageSamples = rb->NumSamples;
    rb->Width = width;
    rb->Height = height;
    rb->_BaseFormat = _mesa_get_format_base_format(rb->Format);
@@ -432,6 +434,7 @@ intel_create_winsys_renderbuffer(struct intel_screen *screen,
    _mesa_init_renderbuffer(rb, 0);
    rb->ClassID = INTEL_RB_CLASS;
    rb->NumSamples = num_samples;
+   rb->NumStorageSamples = num_samples;
 
    /* The base format and internal format must be derived from the user-visible
     * format (that is, the gl_config's format), even if we internally use
@@ -845,10 +848,10 @@ intel_blit_framebuffer_with_blitter(struct gl_context *ctx,
          if (!intel_miptree_blit(brw,
                                  src_irb->mt,
                                  src_irb->mt_level, src_irb->mt_layer,
-                                 srcX0, srcY0, src_rb->Name == 0,
+                                 srcX0, srcY0, readFb->FlipY,
                                  dst_irb->mt,
                                  dst_irb->mt_level, dst_irb->mt_layer,
-                                 dstX0, dstY0, dst_rb->Name == 0,
+                                 dstX0, dstY0, drawFb->FlipY,
                                  dstX1 - dstX0, dstY1 - dstY0,
                                  COLOR_LOGICOP_COPY)) {
             perf_debug("glBlitFramebuffer(): unknown blit failure.  "
@@ -914,14 +917,6 @@ intel_blit_framebuffer(struct gl_context *ctx,
    if (devinfo->gen >= 8 && (mask & GL_STENCIL_BUFFER_BIT)) {
       assert(!"Invalid blit");
    }
-
-   /* Try using the BLT engine. */
-   mask = intel_blit_framebuffer_with_blitter(ctx, readFb, drawFb,
-                                              srcX0, srcY0, srcX1, srcY1,
-                                              dstX0, dstY0, dstX1, dstY1,
-                                              mask);
-   if (mask == 0x0)
-      return;
 
    _swrast_BlitFramebuffer(ctx, readFb, drawFb,
                            srcX0, srcY0, srcX1, srcY1,

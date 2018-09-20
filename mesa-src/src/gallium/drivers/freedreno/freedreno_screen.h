@@ -38,6 +38,7 @@
 #include "os/os_thread.h"
 
 #include "freedreno_batch_cache.h"
+#include "freedreno_perfcntr.h"
 #include "freedreno_util.h"
 
 struct fd_bo;
@@ -70,6 +71,13 @@ struct fd_screen {
 	uint32_t num_vsc_pipes;
 	uint32_t priority_mask;
 	bool has_timestamp;
+
+	unsigned num_perfcntr_groups;
+	const struct fd_perfcntr_group *perfcntr_groups;
+
+	/* generated at startup from the perfcntr groups: */
+	unsigned num_perfcntr_queries;
+	struct pipe_driver_query_info *perfcntr_queries;
 
 	void *compiler;          /* currently unused for a2xx */
 
@@ -106,6 +114,12 @@ struct fd_bo * fd_screen_bo_from_handle(struct pipe_screen *pscreen,
 
 struct pipe_screen * fd_screen_create(struct fd_device *dev);
 
+static inline boolean
+is_a20x(struct fd_screen *screen)
+{
+	return (screen->gpu_id >= 200) && (screen->gpu_id < 210);
+}
+
 /* is a3xx patch revision 0? */
 /* TODO a306.0 probably doesn't need this.. be more clever?? */
 static inline boolean
@@ -132,11 +146,17 @@ is_a5xx(struct fd_screen *screen)
 	return (screen->gpu_id >= 500) && (screen->gpu_id < 600);
 }
 
+static inline boolean
+is_a6xx(struct fd_screen *screen)
+{
+	return (screen->gpu_id >= 600) && (screen->gpu_id < 700);
+}
+
 /* is it using the ir3 compiler (shader isa introduced with a3xx)? */
 static inline boolean
 is_ir3(struct fd_screen *screen)
 {
-	return is_a3xx(screen) || is_a4xx(screen) || is_a5xx(screen);
+	return is_a3xx(screen) || is_a4xx(screen) || is_a5xx(screen) || is_a6xx(screen);
 }
 
 static inline bool

@@ -980,7 +980,7 @@ static void *
 x11_manage_fifo_queues(void *state)
 {
    struct x11_swapchain *chain = state;
-   VkResult result;
+   VkResult result = VK_SUCCESS;
 
    assert(chain->base.present_mode == VK_PRESENT_MODE_FIFO_KHR);
 
@@ -991,7 +991,7 @@ x11_manage_fifo_queues(void *state)
        * before that point so the client should be able to acquire any image
        * other than the currently presented one.
        */
-      uint32_t image_index;
+      uint32_t image_index = 0;
       result = wsi_queue_pull(&chain->present_queue, &image_index, INT64_MAX);
       assert(result != VK_TIMEOUT);
       if (result < 0) {
@@ -1024,7 +1024,7 @@ x11_manage_fifo_queues(void *state)
    }
 
 fail:
-   result = x11_swapchain_result(chain, result);
+   x11_swapchain_result(chain, result);
    wsi_queue_push(&chain->acquire_queue, UINT32_MAX);
 
    return NULL;
@@ -1043,7 +1043,8 @@ x11_image_init(VkDevice device_h, struct x11_swapchain *chain,
    uint32_t bpp = 32;
 
    if (chain->base.use_prime_blit) {
-      result = wsi_create_prime_image(&chain->base, pCreateInfo, &image->base);
+      bool use_modifier = num_tranches > 0;
+      result = wsi_create_prime_image(&chain->base, pCreateInfo, use_modifier, &image->base);
    } else {
       result = wsi_create_native_image(&chain->base, pCreateInfo,
                                        num_tranches, num_modifiers, modifiers,
@@ -1234,9 +1235,6 @@ x11_swapchain_destroy(struct wsi_swapchain *anv_chain,
    struct x11_swapchain *chain = (struct x11_swapchain *)anv_chain;
    xcb_void_cookie_t cookie;
 
-   for (uint32_t i = 0; i < chain->base.image_count; i++)
-      x11_image_finish(chain, pAllocator, &chain->images[i]);
-
    if (chain->threaded) {
       chain->status = VK_ERROR_OUT_OF_DATE_KHR;
       /* Push a UINT32_MAX to wake up the manager */
@@ -1245,6 +1243,9 @@ x11_swapchain_destroy(struct wsi_swapchain *anv_chain,
       wsi_queue_destroy(&chain->acquire_queue);
       wsi_queue_destroy(&chain->present_queue);
    }
+
+   for (uint32_t i = 0; i < chain->base.image_count; i++)
+      x11_image_finish(chain, pAllocator, &chain->images[i]);
 
    xcb_unregister_for_special_event(chain->conn, chain->special_event);
    cookie = xcb_present_select_input_checked(chain->conn, chain->event_id,
@@ -1324,7 +1325,7 @@ x11_surface_create_swapchain(VkIcdSurfaceBase *icd_surface,
     * mode which provokes reallocation when anything changes, to make
     * sure we have the most optimal allocation.
     */
-   struct x11_swapchain *old_chain = (void *) pCreateInfo->oldSwapchain;
+   struct x11_swapchain *old_chain = (void *)(intptr_t) pCreateInfo->oldSwapchain;
    if (old_chain)
       chain->last_present_mode = old_chain->last_present_mode;
    else
@@ -1420,10 +1421,10 @@ fail_init_images:
    for (uint32_t j = 0; j < image; j++)
       x11_image_finish(chain, pAllocator, &chain->images[j]);
 
-fail_register:
    for (int i = 0; i < ARRAY_SIZE(modifiers); i++)
       vk_free(pAllocator, modifiers[i]);
 
+fail_register:
    xcb_unregister_for_special_event(chain->conn, chain->special_event);
 
    wsi_swapchain_finish(&chain->base);
@@ -1468,7 +1469,6 @@ wsi_x11_init_wsi(struct wsi_device *wsi_device,
    }
 
    wsi->base.get_support = x11_surface_get_support;
-   wsi->base.get_capabilities = x11_surface_get_capabilities;
    wsi->base.get_capabilities2 = x11_surface_get_capabilities2;
    wsi->base.get_formats = x11_surface_get_formats;
    wsi->base.get_formats2 = x11_surface_get_formats2;

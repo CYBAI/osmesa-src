@@ -374,7 +374,7 @@ fd3_emit_vertex_bufs(struct fd_ringbuffer *ring, struct fd3_emit *emit)
 			continue;
 		if (vp->inputs[i].sysval) {
 			switch(vp->inputs[i].slot) {
-			case SYSTEM_VALUE_BASE_VERTEX:
+			case SYSTEM_VALUE_FIRST_VERTEX:
 				/* handled elsewhere */
 				break;
 			case SYSTEM_VALUE_VERTEX_ID_ZERO_BASE:
@@ -409,7 +409,16 @@ fd3_emit_vertex_bufs(struct fd_ringbuffer *ring, struct fd3_emit *emit)
 					(instance_regid != regid(63, 0)) ||
 					(vtxcnt_regid != regid(63, 0));
 			bool isint = util_format_is_pure_integer(pfmt);
+			uint32_t off = vb->buffer_offset + elem->src_offset;
 			uint32_t fs = util_format_get_blocksize(pfmt);
+
+#ifdef DEBUG
+			/* see dEQP-GLES31.stress.vertex_attribute_binding.buffer_bounds.bind_vertex_buffer_offset_near_wrap_10
+			 * should mesa/st be protecting us from this?
+			 */
+			if (off > fd_bo_size(rsc->bo))
+				continue;
+#endif
 
 			debug_assert(fmt != ~0);
 
@@ -420,7 +429,7 @@ fd3_emit_vertex_bufs(struct fd_ringbuffer *ring, struct fd3_emit *emit)
 					A3XX_VFD_FETCH_INSTR_0_INDEXCODE(j) |
 					COND(elem->instance_divisor, A3XX_VFD_FETCH_INSTR_0_INSTANCED) |
 					A3XX_VFD_FETCH_INSTR_0_STEPRATE(MAX2(1, elem->instance_divisor)));
-			OUT_RELOC(ring, rsc->bo, vb->buffer_offset + elem->src_offset, 0, 0);
+			OUT_RELOC(ring, rsc->bo, off, 0, 0);
 
 			OUT_PKT0(ring, REG_A3XX_VFD_DECODE_INSTR(j), 1);
 			OUT_RING(ring, A3XX_VFD_DECODE_INSTR_CONSTFILL |
@@ -548,7 +557,7 @@ fd3_emit_state(struct fd_context *ctx, struct fd_ringbuffer *ring,
 		if (fp->has_kill) {
 			val |= A3XX_RB_DEPTH_CONTROL_EARLY_Z_DISABLE;
 		}
-		if (!ctx->rasterizer->depth_clip) {
+		if (!ctx->rasterizer->depth_clip_near) {
 			val |= A3XX_RB_DEPTH_CONTROL_Z_CLAMP_ENABLE;
 		}
 		OUT_PKT0(ring, REG_A3XX_RB_DEPTH_CONTROL, 1);
@@ -643,7 +652,7 @@ fd3_emit_state(struct fd_context *ctx, struct fd_ringbuffer *ring,
 		 * or nothing deal. So when we disable clipping, we must handle the
 		 * viewport clip via scissors.
 		 */
-		if (!ctx->rasterizer->depth_clip) {
+		if (!ctx->rasterizer->depth_clip_near) {
 			struct pipe_viewport_state *vp = &ctx->viewport;
 			minx = MAX2(minx, (int)floorf(vp->translate[0] - fabsf(vp->scale[0])));
 			miny = MAX2(miny, (int)floorf(vp->translate[1] - fabsf(vp->scale[1])));
